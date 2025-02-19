@@ -1,0 +1,58 @@
+stages:
+  - build
+  - deploy
+  - update_branch_data
+
+# Pipeline for the master branch
+master_pipeline:
+  stage: build
+  script:
+    - echo "Building master branch..."
+    - echo "Deploying master branch..."
+  only:
+    - master
+
+# Pipeline for feature branches
+branch_pipeline:
+  stage: build
+  script:
+    - echo "Building branch: $CI_COMMIT_REF_NAME..."
+    - echo "Deploying branch: $CI_COMMIT_REF_NAME..."
+  only:
+    - branches
+  except:
+    - master
+
+update_branch_data:
+  stage: update_branch_data
+  script:
+    - |
+      # Fetch branch data and append to branch_data.json
+      ENVIRONMENT_NAME="dev"
+      SERVICE_NAME="my-service"
+      DOCKER_VERSION_NAME="${CI_PROJECT_NAME}-${CI_COMMIT_REF_NAME}-${CI_PIPELINE_IID}"
+      TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+      STATUS="In-Progress"
+
+      # Create or update branch_data.json
+      if [ ! -f branch_data.json ]; then
+        echo "[]" > branch_data.json
+      fi
+
+      # Append new data
+      jq --arg env "$ENVIRONMENT_NAME" \
+         --arg service "$SERVICE_NAME" \
+         --arg docker_version "$DOCKER_VERSION_NAME" \
+         --arg status "$STATUS" \
+         --arg timestamp "$TIMESTAMP" \
+         '. += [{"environment": $env, "service": $service, "docker_version": $docker_version, "status": $status, "timestamp": $timestamp}]' \
+         branch_data.json > tmp.json && mv tmp.json branch_data.json
+
+      echo "Updated branch_data.json with latest branch information."
+  artifacts:
+    paths:
+      - branch_data.json
+  only:
+    - branches
+  except:
+    - master
