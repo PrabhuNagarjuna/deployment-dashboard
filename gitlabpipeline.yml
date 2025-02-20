@@ -1,0 +1,69 @@
+stages:
+  - run-script
+  - send_to_windows
+  
+run_powershell_script:
+  stage: run-script
+  image: mcr.microsoft.com/powershell:latest
+  script:
+    - pwsh ./Get-GitLabPipelines.ps1
+  artifacts:
+    paths:
+      - pipeline_output.txt
+    expire_in: 1 day
+
+send_to_windows:
+  stage: send_to_windows
+  tags:
+    - prabhu
+  script:
+    - echo "Downloading pipeline_output.txt to Windows..."
+    - |
+      # Define paths
+      $OutputPath = "C:\Deployment Dashboard\pipeline_output.txt"
+      $ZipPath = "C:\Deployment Dashboard\pipeline_artifacts.zip"
+      $ExtractPath = "C:\Deployment Dashboard\extracted"
+
+      # GitLab API details
+      $URL = "https://gitlab.com/api/v4/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_COMMIT_REF_NAME/download?job=run_powershell_script"
+      $Headers = @{ "PRIVATE-TOKEN" = "glpat-LihCsMzgodnz3-6FU2su" }
+
+      # Remove existing output and zip file if they exist
+      if (Test-Path $OutputPath) {
+          Remove-Item -Path $OutputPath -Force
+          Write-Host "Existing pipeline_output.txt removed."
+      }
+      if (Test-Path $ZipPath) {
+          Remove-Item -Path $ZipPath -Force
+          Write-Host "Existing pipeline_artifacts.zip removed."
+      }
+
+      # Ensure extraction folder is clean
+      if (Test-Path $ExtractPath) {
+          Remove-Item -Path $ExtractPath -Recurse -Force
+          Write-Host "Old extraction folder removed."
+      }
+      New-Item -Path $ExtractPath -ItemType Directory | Out-Null
+
+      # Download the ZIP artifact
+      Write-Host "Downloading artifact from $URL..."
+      Invoke-WebRequest -Uri $URL -OutFile $ZipPath -Headers $Headers -ErrorAction Stop
+
+      # Extract the zip file
+      Expand-Archive -Path $ZipPath -DestinationPath $ExtractPath -Force
+
+      # Move extracted file to target location
+      $ExtractedFile = Get-ChildItem -Path $ExtractPath -Recurse -Filter "pipeline_output.txt"
+      if ($ExtractedFile) {
+          Move-Item -Path $ExtractedFile.FullName -Destination $OutputPath -Force
+          Write-Host "pipeline_output.txt successfully moved to $OutputPath"
+      } else {
+          Write-Host "Error: pipeline_output.txt not found in the extracted files!"
+      }
+
+      # Cleanup ZIP file and extracted folder
+      Remove-Item -Path $ZipPath -Force
+      Remove-Item -Path $ExtractPath -Recurse -Force
+
+      Write-Host "Download and extraction complete!"
+
